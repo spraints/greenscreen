@@ -5,14 +5,11 @@ require 'rexml/document'
 require 'hpricot'
 require 'open-uri'
 
-get '/' do
-  servers = YAML.load_file 'config.yml'
-  return "Add the details of build server to the config.yml file to get started" unless servers
-  
-  @projects = []
-
-  servers.each do |server|
-    xml = REXML::Document.new(open(server["url"], :http_basic_authentication=>[server["username"], server["password"]]))
+helpers do
+  def load_server(server)
+    open_opts = {}
+    open_opts[:http_basic_authentication] = [server["username"], server["password"]] if server["username"]
+    xml = REXML::Document.new(open(server["url"], open_opts))
     projects = xml.elements["//Projects"]
     
     projects.each do |project|
@@ -24,6 +21,22 @@ get '/' do
       else
         @projects << monitored_project
       end
+    end
+  end
+end
+
+get '/' do
+  servers = YAML.load_file 'config.yml'
+  return "Add the details of build server to the config.yml file to get started" unless servers
+  
+  @projects = []
+
+  servers.each do |server|
+    begin
+      load_server server
+    rescue Exception => e
+      raise "Unable to load #{server.inspect}: #{e.message}"
+      #raise e.class, "While loading #{server["url"]}: #{e.message}", e.backtrace
     end
   end
 
