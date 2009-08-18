@@ -6,7 +6,7 @@ require 'hpricot'
 require 'open-uri'
 
 helpers do
-  def load_server(server)
+  def get_server_status(server)
     open_opts = {}
     open_opts[:http_basic_authentication] = [server["username"], server["password"]] if server["username"]
     xml = REXML::Document.new(open(server["url"], open_opts))
@@ -23,31 +23,45 @@ helpers do
       end
     end
   end
+
+  def handle(opts = {})
+    servers = YAML.load_file 'config.yml'
+    return "Add the details of build server to the config.yml file to get started" unless servers
+    servers = yield servers if block_given?
+    return (opts[:no_match] || "No servers matched the provided criteria") if servers.empty?
+    
+    @projects = []
+
+    servers.each do |server|
+      begin
+        get_server_status server
+      rescue Exception => e
+        raise "Unable to load #{server.inspect}: #{e.message}"
+        #raise e.class, "While loading #{server["url"]}: #{e.message}", e.backtrace
+      end
+    end
+
+    @columns = 1.0
+    @columns = 2.0 if @projects.size > 4
+    @columns = 3.0 if @projects.size > 10
+    @columns = 4.0 if @projects.size > 21
+    
+    @rows = (@projects.size / @columns).ceil
+
+    erb :index
+  end
 end
 
 get '/' do
+  handle
+end
+
+get '/:category' do
   servers = YAML.load_file 'config.yml'
   return "Add the details of build server to the config.yml file to get started" unless servers
-  
-  @projects = []
-
-  servers.each do |server|
-    begin
-      load_server server
-    rescue Exception => e
-      raise "Unable to load #{server.inspect}: #{e.message}"
-      #raise e.class, "While loading #{server["url"]}: #{e.message}", e.backtrace
-    end
+  handle :no_match => "No servers found in this category" do
+    servers.select { |server| server['category'] == params[:category] }
   end
-
-  @columns = 1.0
-  @columns = 2.0 if @projects.size > 4
-  @columns = 3.0 if @projects.size > 10
-  @columns = 4.0 if @projects.size > 21
-  
-  @rows = (@projects.size / @columns).ceil
-
-  erb :index
 end
 
 class MonitoredProject
